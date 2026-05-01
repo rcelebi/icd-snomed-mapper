@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ICD-10 → SNOMED Mapper</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --blue:    #2563eb;
+    --blue-lt: #eff6ff;
+    --green:   #16a34a;
+    --green-lt:#f0fdf4;
+    --amber:   #d97706;
+    --amber-lt:#fffbeb;
+    --red:     #dc2626;
+    --red-lt:  #fef2f2;
+    --gray-50: #f8fafc;
+    --gray-100:#f1f5f9;
+    --gray-200:#e2e8f0;
+    --gray-400:#94a3b8;
+    --gray-600:#475569;
+    --gray-800:#1e293b;
+    --shadow:    0 1px 3px rgba(0,0,0,.1), 0 1px 2px rgba(0,0,0,.06);
+    --shadow-md: 0 4px 6px -1px rgba(0,0,0,.1), 0 2px 4px -1px rgba(0,0,0,.06);
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--gray-50);
+    color: var(--gray-800);
+    min-height: 100vh;
+  }
+
+  header {
+    background: white;
+    border-bottom: 1px solid var(--gray-200);
+    padding: 0 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: 60px;
+    box-shadow: var(--shadow);
+  }
+  header h1 { font-size: 18px; font-weight: 700; }
+  header p  { font-size: 13px; color: var(--gray-400); margin-top: 1px; }
+
+  /* Status banners */
+  .banner {
+    padding: 9px 24px;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .banner.warn   { background: var(--amber-lt); border-bottom: 1px solid #fde68a; color: #92400e; }
+  .banner.ok     { background: var(--green-lt); border-bottom: 1px solid #bbf7d0; color: #14532d; }
+  .banner.error  { background: var(--red-lt);   border-bottom: 1px solid #fecaca; color: var(--red); }
+  .banner.hidden { display: none; }
+  .banner a      { color: inherit; font-weight: 600; }
+
+  main { max-width: 920px; margin: 32px auto; padding: 0 24px; }
+
+  /* Download instructions card */
+  #download-card {
+    display: none;
+    background: white;
+    border: 1.5px solid #fde68a;
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+    box-shadow: var(--shadow);
+  }
+  #download-card.show { display: block; }
+  #download-card h3 { font-size: 15px; font-weight: 700; color: var(--amber); margin-bottom: 10px; }
+  #download-card ol { padding-left: 18px; font-size: 13.5px; line-height: 2; color: var(--gray-600); }
+  #download-card ol li strong { color: var(--gray-800); }
+  #download-card a { color: var(--blue); }
+
+  .search-box {
+    background: white;
+    border: 1px solid var(--gray-200);
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: var(--shadow-md);
+    margin-bottom: 28px;
+  }
+  .search-box label {
+    display: block;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--gray-400);
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    margin-bottom: 8px;
+  }
+  .search-row { display: flex; gap: 10px; }
+  .search-row input {
+    flex: 1;
+    border: 1.5px solid var(--gray-200);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 16px;
+    font-family: "SF Mono", "Fira Code", monospace;
+    transition: border-color .15s;
+    outline: none;
+  }
+  .search-row input:focus { border-color: var(--blue); }
+  .search-row button {
+    background: var(--blue);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 24px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity .15s;
+  }
+  .search-row button:hover  { opacity: .88; }
+  .search-row button:active { opacity: .75; }
+  .examples { margin-top: 10px; font-size: 12.5px; color: var(--gray-400); }
+  .examples a {
+    color: var(--blue); text-decoration: none;
+    font-family: "SF Mono", "Fira Code", monospace; cursor: pointer;
+  }
+  .examples a:hover { text-decoration: underline; }
+
+  #spinner { display: none; justify-content: center; align-items: center; gap: 10px;
+             padding: 48px; color: var(--gray-400); font-size: 14px; }
+  #spinner.show { display: flex; }
+  .spin { width: 20px; height: 20px; border: 2.5px solid var(--gray-200);
+          border-top-color: var(--blue); border-radius: 50%;
+          animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #results { display: none; }
+  #results.show { display: block; }
+
+  .section-label {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .08em; color: var(--gray-400); margin-bottom: 8px;
+  }
+
+  .card {
+    background: white;
+    border: 1px solid var(--gray-200);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: var(--shadow);
+  }
+  .card + .card { margin-top: 16px; }
+
+  .card-header { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+  .vocab-badge {
+    flex-shrink: 0; display: inline-block;
+    padding: 3px 10px; border-radius: 20px;
+    font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  }
+  .vocab-icd    { background: #e0f2fe; color: #0369a1; }
+  .vocab-snomed { background: #ede9fe; color: #6d28d9; }
+  .concept-name { font-size: 17px; font-weight: 600; line-height: 1.35; }
+  .concept-code { font-size: 13px; font-family: "SF Mono","Fira Code",monospace;
+                  color: var(--gray-400); margin-top: 3px; }
+
+  .mapping-type-row { display: flex; align-items: center; gap: 10px; margin: 20px 0; }
+  .mapping-type-row hr { flex: 1; border: none; border-top: 1.5px dashed var(--gray-200); }
+  .type-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 14px; border-radius: 20px;
+    font-size: 12px; font-weight: 600; white-space: nowrap;
+  }
+  .type-pre  { background: var(--green-lt); color: var(--green); border: 1px solid #bbf7d0; }
+  .type-post { background: var(--amber-lt); color: var(--amber); border: 1px solid #fde68a; }
+  .type-none { background: var(--red-lt);   color: var(--red);   border: 1px solid #fecaca; }
+
+  .meta-row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; }
+  .meta-item { font-size: 12.5px; color: var(--gray-600); }
+  .meta-item strong { color: var(--gray-800); }
+
+  .divider { border: none; border-top: 1px solid var(--gray-100); margin: 16px 0; }
+
+  .post-coord-section { margin-top: 16px; }
+  .post-coord-section h3 { font-size: 13px; font-weight: 700; color: var(--gray-600); margin-bottom: 12px; }
+
+  .expr-box {
+    background: var(--gray-50); border: 1px solid var(--gray-200);
+    border-radius: 8px; padding: 14px 16px;
+    font-family: "SF Mono","Fira Code",monospace; font-size: 12.5px;
+    line-height: 1.7; white-space: pre-wrap; word-break: break-word;
+  }
+
+  .attr-list { display: flex; flex-direction: column; gap: 10px; }
+  .attr-item { border: 1px solid var(--gray-200); border-radius: 8px; overflow: hidden; }
+  .attr-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 14px; background: var(--gray-50);
+    cursor: pointer; user-select: none;
+  }
+  .attr-header:hover { background: var(--gray-100); }
+  .attr-name { font-size: 13.5px; font-weight: 600; flex: 1; }
+  .attr-id   { font-size: 11px; font-family: monospace; color: var(--gray-400); }
+  .chevron   { font-size: 10px; color: var(--gray-400); transition: transform .2s; }
+  .attr-item.open .chevron { transform: rotate(90deg); }
+  .attr-values { display: none; padding: 10px 14px; border-top: 1px solid var(--gray-200); flex-wrap: wrap; gap: 6px; }
+  .attr-item.open .attr-values { display: flex; }
+  .value-chip {
+    display: inline-flex; flex-direction: column;
+    background: white; border: 1px solid var(--gray-200);
+    border-radius: 6px; padding: 4px 10px; font-size: 12px; line-height: 1.4;
+  }
+  .value-chip .v-id   { color: var(--gray-400); font-family: monospace; font-size: 10.5px; }
+  .value-chip .v-name { color: var(--gray-800); font-weight: 500; }
+
+  .children-list { display: flex; flex-direction: column; gap: 8px; }
+  .child-item { border: 1px solid var(--gray-200); border-radius: 8px; overflow: hidden; }
+  .child-header { display: flex; align-items: center; gap: 8px; padding: 9px 14px; cursor: pointer; user-select: none; }
+  .child-header:hover { background: var(--gray-50); }
+  .child-label { font-size: 13px; font-weight: 500; flex: 1; }
+  .child-expr  { display: none; padding: 10px 14px; border-top: 1px solid var(--gray-200); background: var(--gray-50); }
+  .child-item.open .child-expr { display: block; }
+
+  #error-box { display: none; background: var(--red-lt); border: 1px solid #fecaca;
+               border-radius: 10px; padding: 16px 20px; color: var(--red); font-size: 14px; }
+  #error-box.show { display: block; }
+
+  .athena-link { display: inline-flex; align-items: center; gap: 4px; font-size: 12px;
+                 color: var(--blue); text-decoration: none; margin-top: 6px; }
+  .athena-link:hover { text-decoration: underline; }
+  .owl-note { margin-top: 10px; padding: 10px 14px; background: var(--amber-lt);
+              border-radius: 8px; font-size: 13px; color: #92400e; }
+</style>
+</head>
+<body>
+
+<header>
+  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+  </svg>
+  <div>
+    <h1>ICD-10 → SNOMED Mapper</h1>
+    <p>Local Athena vocabulary + SNOMED OWL ontology</p>
+  </div>
+</header>
+
+<!-- Dynamic status banners -->
+<div id="banner-athena" class="banner warn hidden"></div>
+<div id="banner-owl"    class="banner warn hidden"></div>
+
+<main>
+
+  <!-- Download instructions (shown when ICD10CM is missing) -->
+  <div id="download-card">
+    <h3>ICD10CM vocabulary not found in your download</h3>
+    <ol>
+      <li>Go to <a href="https://athena.ohdsi.org/vocabulary/list" target="_blank">athena.ohdsi.org → Vocabularies</a> and log in.</li>
+      <li>Find <strong>ICD10CM</strong> in the list and click <strong>Add to download</strong>.</li>
+      <li>Click <strong>Download vocabularies</strong>, wait for the email, then extract the ZIP.</li>
+      <li>Replace the vocabulary folder in the app config with the new path (currently: <code id="vocab-path-display"></code>), then restart the server.</li>
+    </ol>
+  </div>
+
+  <div class="search-box">
+    <label>ICD-10 Code</label>
+    <div class="search-row">
+      <input id="code-input" type="text" placeholder="e.g. E11.22"
+             autocomplete="off" autocorrect="off" spellcheck="false" />
+      <button onclick="search()">Map</button>
+    </div>
+    <div class="examples">
+      Try:
+      <a onclick="setCode('E11.22')">E11.22</a> ·
+      <a onclick="setCode('I10')">I10</a> ·
+      <a onclick="setCode('J45.20')">J45.20</a> ·
+      <a onclick="setCode('Z82.49')">Z82.49</a> ·
+      <a onclick="setCode('F32.1')">F32.1</a>
+    </div>
+  </div>
+
+  <div id="spinner"><div class="spin"></div> Looking up…</div>
+  <div id="error-box"></div>
+  <div id="results"></div>
+</main>
+
+<script>
+const codeInput = document.getElementById('code-input');
+codeInput.addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
+function setCode(c) { codeInput.value = c; search(); }
+
+// Poll backend status
+async function pollStatus() {
+  try {
+    const d = await fetch('/api/status').then(r => r.json());
+
+    const athBanner = document.getElementById('banner-athena');
+    const owlBanner = document.getElementById('banner-owl');
+    const dlCard    = document.getElementById('download-card');
+
+    if (!d.athena_ready) {
+      athBanner.className = 'banner warn';
+      athBanner.textContent = 'Loading Athena vocabulary files…';
+    } else if (d.athena_error) {
+      athBanner.className = 'banner error';
+      athBanner.textContent = 'Athena error: ' + d.athena_error;
+    } else if (!d.has_icd10cm) {
+      athBanner.className = 'banner warn';
+      athBanner.textContent = 'ICD10CM vocabulary not in local files — see instructions below.';
+      dlCard.classList.add('show');
+    } else {
+      athBanner.className = 'banner ok';
+      athBanner.textContent = 'Athena vocabulary loaded. ICD10CM available.';
+    }
+
+    if (!d.owl_ready) {
+      owlBanner.className = 'banner warn';
+      owlBanner.textContent = 'SNOMED OWL cache building in background — post-coordinated expressions not yet available.';
+    } else {
+      owlBanner.className = 'banner ok';
+      owlBanner.textContent = `SNOMED OWL ready — ${d.owl_concepts.toLocaleString()} concepts loaded.`;
+    }
+
+    if (!d.athena_ready || !d.owl_ready) setTimeout(pollStatus, 3000);
+  } catch (_) {
+    setTimeout(pollStatus, 3000);
+  }
+}
+pollStatus();
+
+async function search() {
+  const code = codeInput.value.trim();
+  if (!code) return;
+
+  const spinner  = document.getElementById('spinner');
+  const results  = document.getElementById('results');
+  const errorBox = document.getElementById('error-box');
+
+  spinner.classList.add('show');
+  results.classList.remove('show');
+  errorBox.classList.remove('show');
+  results.innerHTML = '';
+
+  try {
+    const r = await fetch(`/api/map/${encodeURIComponent(code)}`);
+    const d = await r.json();
+    spinner.classList.remove('show');
+    if (d.error) {
+      errorBox.textContent = d.error;
+      errorBox.classList.add('show');
+      return;
+    }
+    render(d);
+    results.classList.add('show');
+  } catch (e) {
+    spinner.classList.remove('show');
+    errorBox.textContent = 'Network error: ' + e.message;
+    errorBox.classList.add('show');
+  }
+}
+
+function render(d) {
+  const el = document.getElementById('results');
+  let html = '';
+
+  const icd    = d.icd10;
+  const icdId  = icd.id || '';
+
+  html += `
+    <div class="section-label">Source</div>
+    <div class="card">
+      <div class="card-header">
+        <span class="vocab-badge vocab-icd">ICD-10-CM</span>
+        <div>
+          <div class="concept-name">${esc(icd.name || '')}</div>
+          <div class="concept-code">${esc(icd.code || '')}</div>
+        </div>
+      </div>
+      <div class="meta-row">
+        <span class="meta-item"><strong>Domain:</strong> ${esc(icd.domainId || '—')}</span>
+        <span class="meta-item"><strong>Class:</strong> ${esc(icd.conceptClassId || '—')}</span>
+        <span class="meta-item"><strong>Concept ID:</strong> ${esc(String(icdId))}</span>
+      </div>
+      <a class="athena-link" href="https://athena.ohdsi.org/search-terms/terms/${icdId}" target="_blank">View in Athena ↗</a>
+    </div>`;
+
+  const typeInfo = {
+    'pre-coordinated':  { cls: 'type-pre',  label: 'Direct mapping (pre-coordinated)' },
+    'post-coordinated': { cls: 'type-post', label: 'No direct mapping — post-coordinated expression' },
+    'no-mapping':       { cls: 'type-none', label: 'No mapping found' },
+  }[d.type] || { cls: 'type-none', label: d.type };
+
+  html += `<div class="mapping-type-row"><hr /><span class="type-badge ${typeInfo.cls}">${typeInfo.label}</span><hr /></div>`;
+
+  if (d.type === 'pre-coordinated') {
+    html += `<div class="section-label">Pre-coordinated SNOMED mapping</div>`;
+    for (let i = 0; i < d.snomed.length; i++) {
+      html += renderSnomedCard(d.snomed[i]);
+      const pc = d.post_coords?.[i];
+      if (!d.owl_ready) {
+        html += `<div class="owl-note">SNOMED OWL cache still building — post-coordinated expressions will appear once ready.</div>`;
+      } else if (pc) {
+        html += renderPostCoord(pc);
+      }
+    }
+    if (d.maps_to_value?.length) {
+      html += `<div class="section-label" style="margin-top:20px">Maps to value (secondary concept)</div>`;
+      for (const s of d.maps_to_value) html += renderSnomedCard(s);
+    }
+  }
+
+  if (d.type === 'post-coordinated') {
+    const p = d.parent_icd10 || {};
+    html += `
+      <div class="section-label">Closest ancestor ICD-10 with SNOMED mapping</div>
+      <div class="card" style="border-color:#fde68a">
+        <div class="meta-row">
+          <span class="meta-item"><strong>Code:</strong> ${esc(p.code || '—')}</span>
+          <span class="meta-item">${esc(p.name || '')}</span>
+        </div>
+      </div>
+      <div class="section-label" style="margin-top:16px">SNOMED focus concept</div>`;
+    html += renderSnomedCard(d.focus_snomed);
+    if (!d.owl_ready) {
+      html += `<div class="owl-note">SNOMED OWL cache still building. Refresh once ready for post-coordinated expression suggestions.</div>`;
+    } else if (d.post_coord) {
+      html += renderPostCoord(d.post_coord);
+    }
+  }
+
+  if (d.type === 'no-mapping') {
+    html += `<div class="card"><p style="color:var(--gray-600);font-size:14px">${esc(d.message)}</p></div>`;
+  }
+
+  el.innerHTML = html;
+}
+
+function renderSnomedCard(s) {
+  const id = s.id || '';
+  return `
+    <div class="card">
+      <div class="card-header">
+        <span class="vocab-badge vocab-snomed">SNOMED CT</span>
+        <div>
+          <div class="concept-name">${esc(s.name || '')}</div>
+          <div class="concept-code">${esc(s.code || '')}</div>
+        </div>
+      </div>
+      <div class="meta-row">
+        <span class="meta-item"><strong>Domain:</strong> ${esc(s.domainId || '—')}</span>
+        <span class="meta-item"><strong>Standard:</strong> ${esc(s.standardConcept || '—')}</span>
+        <span class="meta-item"><strong>Concept ID:</strong> ${esc(String(id))}</span>
+      </div>
+      <a class="athena-link" href="https://athena.ohdsi.org/search-terms/terms/${id}" target="_blank">View in Athena ↗</a>
+    </div>`;
+}
+
+function renderPostCoord(pc) {
+  let html = `<div class="post-coord-section"><hr class="divider">`;
+
+  // ── Own defining expression ───────────────────────────────────────────────
+  html += `<h3>Post-Coordinated Expression (SNOMED OWL definition)</h3>`;
+
+  if (pc.own_roles?.length && pc.parents?.length) {
+    // Render as a structured role table, not just raw text
+    const fp = pc.parents[0];
+    html += `
+      <div class="expr-box">${esc(fp.id)} | ${esc(fp.label)} | :
+  {`;
+    for (const r of pc.own_roles) {
+      html += `
+    ${esc(r.attr.id)} | ${esc(r.attr.label)} | = ${esc(r.val.id)} | ${esc(r.val.label)} |`;
+    }
+    html += `
+  }</div>`;
+
+    // Role pills for quick scan
+    html += `<div class="meta-row" style="margin-top:10px">`;
+    for (const r of pc.own_roles) {
+      html += `<span class="meta-item">
+        <strong>${esc(r.attr.label)}</strong>
+        <span style="color:var(--gray-400)"> → </span>
+        <span style="color:var(--blue)">${esc(r.val.label)}</span>
+        <span style="font-size:11px;color:var(--gray-400)"> (${esc(r.val.id)})</span>
+      </span>`;
+    }
+    html += `</div>`;
+  } else {
+    html += `<div class="expr-box" style="color:var(--gray-400);font-style:italic">No defining roles found — this may be a primitive (non-defined) concept.</div>`;
+  }
+
+  // ── Refinement attributes from children ──────────────────────────────────
+  if (pc.attributes?.length) {
+    html += `<h3 style="margin-top:16px">Further refinement attributes (from sub-concepts)</h3><div class="attr-list">`;
+    for (const a of pc.attributes) {
+      const ownMark = a.is_own
+        ? `<span style="font-size:10px;background:#dbeafe;color:#1d4ed8;padding:1px 6px;border-radius:10px;margin-left:6px">defined</span>`
+        : '';
+      html += `
+        <div class="attr-item">
+          <div class="attr-header" onclick="this.closest('.attr-item').classList.toggle('open')">
+            <span class="attr-name">${esc(a.attr.label)}${ownMark}</span>
+            <span class="attr-id">${esc(a.attr.id)}</span>
+            <span class="chevron">▶</span>
+          </div>
+          <div class="attr-values">
+            ${a.values.map(v => `<div class="value-chip"><span class="v-id">${esc(v.id)}</span><span class="v-name">${esc(v.label)}</span></div>`).join('')}
+          </div>
+        </div>`;
+    }
+    html += `</div>`;
+  }
+
+  // ── Example children ─────────────────────────────────────────────────────
+  if (pc.example_children?.length) {
+    html += `<h3 style="margin-top:16px">Example sub-concepts (from OWL)</h3><div class="children-list">`;
+    for (const ch of pc.example_children) {
+      html += `
+        <div class="child-item">
+          <div class="child-header" onclick="this.closest('.child-item').classList.toggle('open')">
+            <span class="child-label">${esc(ch.label)}</span>
+            <span class="attr-id">${esc(ch.id)}</span>
+            <span class="chevron">▶</span>
+          </div>
+          <div class="child-expr"><div class="expr-box">${esc(ch.expression)}</div></div>
+        </div>`;
+    }
+    html += `</div>`;
+  }
+
+  html += `</div>`;
+  return html;
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>
