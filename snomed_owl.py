@@ -152,6 +152,12 @@ class SnomedOWL:
         conn.commit()
         conn.close()
 
+    def get_role_values(self, attr_id: str) -> set:
+        with self._conn() as c:
+            return {r[0] for r in c.execute(
+                "SELECT DISTINCT val_id FROM roles WHERE attr_id=?", (attr_id,)
+            )}
+
     def get_label(self, cid: str) -> str:
         with self._conn() as c:
             row = c.execute(
