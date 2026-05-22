@@ -1,0 +1,9 @@
+__pycache__
+*.pyc
+.venv*
+.git
+# Large local-only data files (mounted as volumes at runtime)
+*.db
+*.npy
+*.model
+*.owl

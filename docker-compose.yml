@@ -1,0 +1,14 @@
+services:
+  icd-snomed-mapper:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      # Data files mounted at the same absolute paths the code expects
+      - /Users/remzicelebi/workspace/snomed:/Users/remzicelebi/workspace/snomed:ro
+      - /Users/remzicelebi/Downloads/icd10tosnomed:/Users/remzicelebi/Downloads/icd10tosnomed:ro
+      # Cache HuggingFace model downloads across restarts
+      - huggingface_cache:/root/.cache/huggingface
+
+volumes:
+  huggingface_cache:
